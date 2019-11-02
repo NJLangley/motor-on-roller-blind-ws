@@ -1,24 +1,24 @@
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
-#include <ESPmDNS.h>
-#include <WebServer.h>
 #include <WiFi.h>
-#include <PubSubClient.h>
-#include <Stepper_28BYJ_48.h>
 #include <WebSocketsServer.h>
-#include <WiFiClient.h>
 #include <WiFiManager.h>
 #include <WiFiUdp.h>
 #include "FS.h"
 #include "SPIFFS.h"
-#include "index_html.h"
 #include "NidayandHelper.h"
-#include "MotorsSetup.h"
 
-//--------------- CHANGE PARAMETERS ------------------
+#include "MotorsSetup.h"
+#include "WebServerSetup.h"
+
 //Configure Default Settings for Access Point logon
-String APid = "BlindsConnectAP"; //Name of access point
-String APpw = "nidayand";        //Hardcoded password for access point
+String APid = "Blinds AP"; //Name of access point
+String APpw = "";          //Hardcoded password for access point
+
+boolean mqttActive = true;
+char config_name[40] = "blinds";    //WIFI config: Bonjour name of device
+char config_rotation[40] = "false"; //WIFI config: Detault rotation is CCW
+
 
 //Set up buttons
 const uint8_t btnup = 18;  //Up button
@@ -27,31 +27,21 @@ const uint8_t btnres = 20; //Reset button
 
 //----------------------------------------------------
 
-// Version number for checking if there are new code releases and notifying the user
-String version = "1.3.3";
-
 NidayandHelper helper = NidayandHelper();
 
-//Fixed settings for WIFI
-WiFiClient espClient;
-PubSubClient psclient(espClient); //MQTT client
-char mqtt_server[40];             //WIFI config: MQTT server config (optional)
-char mqtt_port[6] = "1883";       //WIFI config: MQTT port config (optional)
-char mqtt_uid[40];                //WIFI config: MQTT server username (optional)
-char mqtt_pwd[40];                //WIFI config: MQTT server password (optional)
+char mqtt_server[40];       //WIFI config: MQTT server config (optional)
+char mqtt_port[6] = "1883"; //WIFI config: MQTT port config (optional)
+char mqtt_uid[40];          //WIFI config: MQTT server username (optional)
+char mqtt_pwd[40];          //WIFI config: MQTT server password (optional)
 
 String outputTopic; //MQTT topic for sending messages
 String inputTopic;  //MQTT topic for listening
-boolean mqttActive = true;
-char config_name[40] = "blinds";    //WIFI config: Bonjour name of device
-char config_rotation[40] = "false"; //WIFI config: Detault rotation is CCW
 
 boolean loadDataSuccess = false;
 boolean saveItNow = false;     //If true will store positions to SPIFFS
 bool shouldSaveConfig = false; //Used for WIFI Manager callback to save parameters
 boolean initLoop = true;       //To enable actions first time the loop is run
 
-WebServer server(80);                              // TCP server at port 80 will respond to HTTP requests
 WebSocketsServer webSocket = WebSocketsServer(81); // WebSockets will respond on port 81
 
 bool loadConfig()
@@ -226,26 +216,6 @@ void saveConfigCallback()
   shouldSaveConfig = true;
 }
 
-void handleRoot()
-{
-  server.send(200, "text/html", INDEX_HTML);
-}
-void handleNotFound()
-{
-  String message = "File Not Found\n\n";
-  message += "URI: ";
-  message += server.uri();
-  message += "\nMethod: ";
-  message += (server.method() == HTTP_GET) ? "GET" : "POST";
-  message += "\nArguments: ";
-  message += server.args();
-  message += "\n";
-  for (uint8_t i = 0; i < server.args(); i++)
-  {
-    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
-  }
-  server.send(404, "text/plain", message);
-}
 
 void setup(void)
 {
@@ -296,7 +266,7 @@ void setup(void)
 
   wifiManager.autoConnect(APid.c_str(), APpw.c_str());
 
-  Serial.println("--- got here 1");
+  Serial.println("--- setup wifiManager done");
 
   //Load config upon start
   if (!SPIFFS.begin(true))
@@ -304,7 +274,7 @@ void setup(void)
     Serial.println(F("Failed to mount file system"));
     return;
   }
-  Serial.println("--- got here 2");
+  Serial.println("--- SPIFFS mounted");
 
   /* Save the config back from WIFI Manager.
       This is only called after configuration
@@ -324,7 +294,7 @@ void setup(void)
     saveConfig();
   }
 
-  Serial.println("--- got here 3");
+  Serial.println("--- wifiManager saved config" + String(shouldSaveConfig));
 
   /*
      Try to load FS data configuration every time when
@@ -338,30 +308,8 @@ void setup(void)
     currentPosition = 0;
     maxPosition = 2000000;
   }
-  /*
-    Setup multi DNS (Bonjour)
-  */
-  if (MDNS.begin(config_name))
-  {
-    Serial.println(F("MDNS responder started"));
-    MDNS.addService("http", "tcp", 80);
-    MDNS.addService("ws", "tcp", 81);
-  }
-  else
-  {
-    Serial.println(F("Error setting up MDNS responder!"));
-    while (1)
-    {
-      delay(1000);
-    }
-  }
-  Serial.print("Connect to http://" + String(config_name) + ".local or http://");
-  Serial.println(WiFi.localIP());
 
-  //Start HTTP server
-  server.on("/", handleRoot);
-  server.onNotFound(handleNotFound);
-  server.begin();
+  serverSetup(config_name);
 
   //Start websocket
   webSocket.begin();
@@ -388,10 +336,6 @@ void setup(void)
     ccw = true;
   else
     ccw = false;
-
-  //Update webpage
-  INDEX_HTML.replace("{VERSION}", "V" + version);
-  INDEX_HTML.replace("{NAME}", String(config_name));
 
   //Setup OTA
   //helper.ota_setup(config_name);
