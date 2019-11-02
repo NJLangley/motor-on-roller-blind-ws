@@ -11,6 +11,7 @@
 #include "WebServerSetup.h"
 #include "OTASetup.h"
 #include "MQTTSetup.h"
+#include "WebSocketsSetup.h"
 
 //Configure Default Settings for Access Point logon
 String APid = "Blinds AP"; //Name of access point
@@ -35,8 +36,6 @@ boolean loadDataSuccess = false;
 boolean saveItNow = false;     //If true will store positions to SPIFFS
 bool shouldSaveConfig = false; //Used for WIFI Manager callback to save parameters
 boolean initLoop = true;       //To enable actions first time the loop is run
-
-WebSocketsServer webSocket = WebSocketsServer(81); // WebSockets will respond on port 81
 
 bool loadConfig()
 {
@@ -172,21 +171,6 @@ void processMsg(String res, uint8_t clientnum)
   }
 }
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
-{
-  switch (type)
-  {
-  case WStype_TEXT:
-    Serial.printf("[%u] get Text: %s\n", num, payload);
-
-    String res = (char *)payload;
-
-    //Send to common MQTT and websocket function
-    processMsg(res, num);
-    break;
-  }
-}
-
 /*
    Callback from WIFI Manager for saving configuration
 */
@@ -289,9 +273,7 @@ void setup(void)
 
   serverSetup(config_name);
 
-  //Start websocket
-  webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
+  webSocketsSetup(processMsg);
 
   mqttSetup(processMsg);
 
