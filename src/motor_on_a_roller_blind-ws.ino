@@ -1,5 +1,4 @@
 #include <ArduinoJson.h>
-#include <ArduinoOTA.h>
 #include <WiFi.h>
 #include <WebSocketsServer.h>
 #include <WiFiManager.h>
@@ -10,6 +9,7 @@
 
 #include "MotorsSetup.h"
 #include "WebServerSetup.h"
+#include "OTASetup.h"
 
 //Configure Default Settings for Access Point logon
 String APid = "Blinds AP"; //Name of access point
@@ -18,7 +18,6 @@ String APpw = "";          //Hardcoded password for access point
 boolean mqttActive = true;
 char config_name[40] = "blinds";    //WIFI config: Bonjour name of device
 char config_rotation[40] = "false"; //WIFI config: Detault rotation is CCW
-
 
 //Set up buttons
 const uint8_t btnup = 18;  //Up button
@@ -216,7 +215,6 @@ void saveConfigCallback()
   shouldSaveConfig = true;
 }
 
-
 void setup(void)
 {
   Serial.begin(115200);
@@ -337,38 +335,7 @@ void setup(void)
   else
     ccw = false;
 
-  //Setup OTA
-  //helper.ota_setup(config_name);
-  {
-    // Authentication to avoid unauthorized updates
-    //ArduinoOTA.setPassword(OTA_PWD);
-
-    ArduinoOTA.setHostname(config_name);
-
-    ArduinoOTA.onStart([]() {
-      Serial.println(F("Start"));
-    });
-    ArduinoOTA.onEnd([]() {
-      Serial.println(F("\nEnd"));
-    });
-    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-    });
-    ArduinoOTA.onError([](ota_error_t error) {
-      Serial.printf("Error[%u]: ", error);
-      if (error == OTA_AUTH_ERROR)
-        Serial.println(F("Auth Failed"));
-      else if (error == OTA_BEGIN_ERROR)
-        Serial.println(F("Begin Failed"));
-      else if (error == OTA_CONNECT_ERROR)
-        Serial.println(F("Connect Failed"));
-      else if (error == OTA_RECEIVE_ERROR)
-        Serial.println(F("Receive Failed"));
-      else if (error == OTA_END_ERROR)
-        Serial.println(F("End Failed"));
-    });
-    ArduinoOTA.begin();
-  }
+  otaSetup(config_name);
 }
 
 void loop(void)
