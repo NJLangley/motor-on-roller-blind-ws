@@ -1,3 +1,5 @@
+#include <ArduinoJson.h>
+
 #include "WebSocketsServer.h"
 #include <Stepper_28BYJ_48.h>
 
@@ -15,6 +17,12 @@ int setPos = 0;             //The set position 0-100% by the client
 long currentPosition = 0;   //Current position of the blind
 long maxPosition = 2000000; //Max position of the blind. Initial value
 boolean ccw = true;         //Turns counter clockwise to lower the curtain
+
+void loadMotors(JsonVariant json)
+{
+  currentPosition = json["currentPosition"].as<long>();
+  maxPosition = json["maxPosition"].as<long>();
+}
 
 /* Turn of power to coils whenever the blind is not moving */
 void stopPowerToCoils()

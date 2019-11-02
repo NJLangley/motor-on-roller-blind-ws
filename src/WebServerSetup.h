@@ -1,5 +1,4 @@
-#include <WiFiClient.h>
-#include <PubSubClient.h>
+
 #include <WebServer.h>
 #include "index_html.h"
 #include <ESPmDNS.h>
@@ -7,10 +6,6 @@
 
 // Version number for checking if there are new code releases and notifying the user
 String version = "1.3.3";
-
-//Fixed settings for WIFI
-WiFiClient espClient;
-PubSubClient psclient(espClient); //MQTT client
 
 WebServer server(80); // TCP server at port 80 will respond to HTTP requests
 

@@ -10,12 +10,12 @@
 #include "MotorsSetup.h"
 #include "WebServerSetup.h"
 #include "OTASetup.h"
+#include "MQTTSetup.h"
 
 //Configure Default Settings for Access Point logon
 String APid = "Blinds AP"; //Name of access point
 String APpw = "";          //Hardcoded password for access point
 
-boolean mqttActive = true;
 char config_name[40] = "blinds";    //WIFI config: Bonjour name of device
 char config_rotation[40] = "false"; //WIFI config: Detault rotation is CCW
 
@@ -27,11 +27,6 @@ const uint8_t btnres = 20; //Reset button
 //----------------------------------------------------
 
 NidayandHelper helper = NidayandHelper();
-
-char mqtt_server[40];       //WIFI config: MQTT server config (optional)
-char mqtt_port[6] = "1883"; //WIFI config: MQTT port config (optional)
-char mqtt_uid[40];          //WIFI config: MQTT server username (optional)
-char mqtt_pwd[40];          //WIFI config: MQTT server password (optional)
 
 String outputTopic; //MQTT topic for sending messages
 String inputTopic;  //MQTT topic for listening
@@ -54,15 +49,10 @@ bool loadConfig()
   json.printTo(Serial);
 
   //Store variables locally
-  currentPosition = json["currentPosition"].as<long>();
-  maxPosition = json["maxPosition"].as<long>();
-
   strcpy(config_name, json["config_name"]);
-  strcpy(mqtt_server, json["mqtt_server"]);
-  strcpy(mqtt_port, json["mqtt_port"]);
-  strcpy(mqtt_uid, json["mqtt_uid"]);
-  strcpy(mqtt_pwd, json["mqtt_pwd"]);
   strcpy(config_rotation, json["config_rotation"]);
+  loadMotors(json);
+  loadMQTT(json);
 
   return true;
 }
@@ -75,14 +65,16 @@ bool saveConfig()
 {
   DynamicJsonBuffer jsonBuffer(300);
   JsonObject &json = jsonBuffer.createObject();
+  json["config_name"] = config_name;
+  json["config_rotation"] = config_rotation;
+
   json["currentPosition"] = currentPosition;
   json["maxPosition"] = maxPosition;
-  json["config_name"] = config_name;
+
   json["mqtt_server"] = mqtt_server;
   json["mqtt_port"] = mqtt_port;
   json["mqtt_uid"] = mqtt_uid;
   json["mqtt_pwd"] = mqtt_pwd;
-  json["config_rotation"] = config_rotation;
 
   return helper.saveconfig(json);
 }
@@ -194,18 +186,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     break;
   }
 }
-void mqttCallback(char *topic, byte *payload, unsigned int length)
-{
-  Serial.print(F("Message arrived ["));
-  Serial.print(topic);
-  Serial.print(F("] "));
-  String res = "";
-  for (int i = 0; i < length; i++)
-  {
-    res += String((char)payload[i]);
-  }
-  processMsg(res, NULL);
-}
 
 /*
    Callback from WIFI Manager for saving configuration
@@ -313,21 +293,7 @@ void setup(void)
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
 
-  /* Setup connection for MQTT and for subscribed
-    messages IF a server address has been entered
-  */
-  Serial.println("MQTTTTT " + String(mqtt_server));
-  if (String(mqtt_server) != "")
-  {
-    Serial.println(F("Registering MQTT server"));
-    psclient.setServer(mqtt_server, String(mqtt_port).toInt());
-    psclient.setCallback(mqttCallback);
-  }
-  else
-  {
-    mqttActive = false;
-    Serial.println(F("NOTE: No MQTT server address has been registered. Only using websockets"));
-  }
+  mqttSetup(processMsg);
 
   //Set rotation direction of the blinds
   if (String(config_rotation) == "false")
@@ -387,11 +353,6 @@ void loop(void)
     saveConfig();
     saveItNow = false;
 
-    /*
-      If no action is required by the motor make sure to
-      turn off all coils to avoid overheating and less energy
-      consumption
-    */
     stopPowerToCoils();
   }
 
@@ -408,7 +369,6 @@ void loop(void)
     }
     else
     {
-      //Automatically open or close blind
       motors_auto(path);
     }
   }
@@ -418,13 +378,6 @@ void loop(void)
     motors_broadcast(webSocket, outputTopic, sendmsg);
   }
 
-  /*
-    After running setup() the motor might still have
-    power on some of the coils. This is making sure that
-    power is off the first time loop() has been executed
-    to avoid heating the stepper motor draining
-    unnecessary current
-  */
   if (initLoop)
   {
     initLoop = false;
