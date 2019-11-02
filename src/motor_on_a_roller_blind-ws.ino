@@ -13,6 +13,7 @@
 #include "SPIFFS.h"
 #include "index_html.h"
 #include "NidayandHelper.h"
+#include "MotorsSetup.h"
 
 //--------------- CHANGE PARAMETERS ------------------
 //Configure Default Settings for Access Point logon
@@ -23,11 +24,6 @@ String APpw = "nidayand";        //Hardcoded password for access point
 const uint8_t btnup = 18;  //Up button
 const uint8_t btndn = 19;  //Down button
 const uint8_t btnres = 20; //Reset button
-
-int M1_1 = 13;
-int M1_2 = 12;
-int M1_3 = 14;
-int M1_4 = 27;
 
 //----------------------------------------------------
 
@@ -50,18 +46,10 @@ boolean mqttActive = true;
 char config_name[40] = "blinds";    //WIFI config: Bonjour name of device
 char config_rotation[40] = "false"; //WIFI config: Detault rotation is CCW
 
-String action;              //Action manual/auto
-int path = 0;               //Direction of blind (1 = down, 0 = stop, -1 = up)
-int setPos = 0;             //The set position 0-100% by the client
-long currentPosition = 0;   //Current position of the blind
-long maxPosition = 2000000; //Max position of the blind. Initial value
 boolean loadDataSuccess = false;
 boolean saveItNow = false;     //If true will store positions to SPIFFS
 bool shouldSaveConfig = false; //Used for WIFI Manager callback to save parameters
 boolean initLoop = true;       //To enable actions first time the loop is run
-boolean ccw = true;            //Turns counter clockwise to lower the curtain
-
-Stepper_28BYJ_48 small_stepper(M1_1, M1_2, M1_3, M1_4); //Initiate stepper driver
 
 WebServer server(80);                              // TCP server at port 80 will respond to HTTP requests
 WebSocketsServer webSocket = WebSocketsServer(81); // WebSockets will respond on port 81
@@ -199,12 +187,7 @@ void processMsg(String res, uint8_t clientnum)
     setPos = path; //Copy path for responding to updates
     action = "auto";
 
-    int set = (setPos * 100) / maxPosition;
-    int pos = (currentPosition * 100) / maxPosition;
-
-    //Send the instruction to all connected devices
-    sendmsg(outputTopic, "{ \"set\":" + String(set) + ", \"position\":" + String(pos) + " }");
-    webSocket.broadcastTXT("{ \"set\":" + String(set) + ", \"position\":" + String(pos) + " }");
+    motors_broadcast(webSocket, outputTopic, sendmsg);
   }
 }
 
@@ -233,19 +216,6 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     res += String((char)payload[i]);
   }
   processMsg(res, NULL);
-}
-
-/**
-  Turn of power to coils whenever the blind
-  is not moving
-*/
-void stopPowerToCoils()
-{
-  digitalWrite(M1_1, LOW);
-  digitalWrite(M1_2, LOW);
-  digitalWrite(M1_3, LOW);
-  digitalWrite(M1_4, LOW);
-  Serial.println(F("Motor stopped"));
 }
 
 /*
@@ -474,34 +444,7 @@ void loop(void)
 
   if (digitalRead(btnres))
   {
-    bool pres_cont = false;
-    while (!digitalRead(btndn) && currentPosition > 0)
-    {
-      Serial.println(F("Moving down"));
-      small_stepper.step(ccw ? -1 : 1);
-      currentPosition = currentPosition - 1;
-      yield();
-      delay(1);
-      pres_cont = true;
-    }
-    while (!digitalRead(btnup) && currentPosition < maxPosition)
-    {
-      Serial.println(F("Moving up"));
-      small_stepper.step(ccw ? 1 : -1);
-      currentPosition = currentPosition + 1;
-      yield();
-      delay(1);
-      pres_cont = true;
-    }
-    if (pres_cont)
-    {
-      int set = (setPos * 100) / maxPosition;
-      int pos = (currentPosition * 100) / maxPosition;
-      webSocket.broadcastTXT("{ \"set\":" + String(set) + ", \"position\":" + String(pos) + " }");
-      sendmsg(outputTopic, "{ \"set\":" + String(set) + ", \"position\":" + String(pos) + " }");
-      Serial.println(F("Stopped. Reached wanted position"));
-      saveItNow = true;
-    }
+    saveItNow = motorsLoop(btndn, btnup, webSocket, outputTopic, sendmsg);
   }
 
   if (!(digitalRead(btnres) || digitalRead(btndn) || digitalRead(btnup)))
@@ -545,38 +488,23 @@ void loop(void)
   if (action == "auto")
   {
 
-    //Automatically open or close blind
-    if (currentPosition > path)
-    {
-      Serial.println(F("Moving down"));
-      small_stepper.step(ccw ? -1 : 1);
-      currentPosition = currentPosition - 1;
-    }
-    else if (currentPosition < path)
-    {
-      Serial.println(F("Moving up"));
-      small_stepper.step(ccw ? 1 : -1);
-      currentPosition = currentPosition + 1;
-    }
-    else
+    if (currentPosition == path)
     {
       path = 0;
       action = "";
-      int set = (setPos * 100) / maxPosition;
-      int pos = (currentPosition * 100) / maxPosition;
-      webSocket.broadcastTXT("{ \"set\":" + String(set) + ", \"position\":" + String(pos) + " }");
-      sendmsg(outputTopic, "{ \"set\":" + String(set) + ", \"position\":" + String(pos) + " }");
-      Serial.println(F("Stopped. Reached wanted position"));
+      motors_down();
       saveItNow = true;
+    }
+    else
+    {
+      //Automatically open or close blind
+      motors_auto(path);
     }
   }
   else if (action == "manual" && path != 0)
   {
-
-    //Manually running the blind
-    small_stepper.step(ccw ? path : -path);
-    currentPosition = currentPosition + path;
-    Serial.println(F("Moving motor manually"));
+    motors_manual();
+    motors_broadcast(webSocket, outputTopic, sendmsg);
   }
 
   /*
