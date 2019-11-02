@@ -1,8 +1,4 @@
 #include <ArduinoJson.h>
-#include <WiFi.h>
-#include <WebSocketsServer.h>
-#include <WiFiManager.h>
-#include <WiFiUdp.h>
 #include "FS.h"
 #include "SPIFFS.h"
 #include "NidayandHelper.h"
@@ -12,13 +8,7 @@
 #include "OTASetup.h"
 #include "MQTTSetup.h"
 #include "WebSocketsSetup.h"
-
-//Configure Default Settings for Access Point logon
-String APid = "Blinds AP"; //Name of access point
-String APpw = "";          //Hardcoded password for access point
-
-char config_name[40] = "blinds";    //WIFI config: Bonjour name of device
-char config_rotation[40] = "false"; //WIFI config: Detault rotation is CCW
+#include "WiFiManagerSetup.h"
 
 //Set up buttons
 const uint8_t btnup = 18;  //Up button
@@ -196,40 +186,7 @@ void setup(void)
   outputTopic = helper.mqtt_gettopic("out");
   inputTopic = helper.mqtt_gettopic("in");
 
-  //Set the WIFI hostname
-  WiFi.setHostname(config_name);
-
-  //Define customer parameters for WIFI Manager
-  WiFiManagerParameter custom_config_name("Name", "Bonjour name", config_name, 40);
-  WiFiManagerParameter custom_rotation("Rotation", "Clockwise rotation", config_rotation, 40);
-  WiFiManagerParameter custom_text("<p><b>Optional MQTT server parameters:</b></p>");
-  WiFiManagerParameter custom_mqtt_server("server", "MQTT server", mqtt_server, 40);
-  WiFiManagerParameter custom_mqtt_port("port", "MQTT port", mqtt_port, 6);
-  WiFiManagerParameter custom_mqtt_uid("uid", "MQTT username", mqtt_server, 40);
-  WiFiManagerParameter custom_mqtt_pwd("pwd", "MQTT password", mqtt_server, 40);
-  WiFiManagerParameter custom_text2("<script>t = document.createElement('div');t2 = document.createElement('input');t2.setAttribute('type', 'checkbox');t2.setAttribute('id', 'tmpcheck');t2.setAttribute('style', 'width:10%');t2.setAttribute('onclick', \"if(document.getElementById('Rotation').value == 'false'){document.getElementById('Rotation').value = 'true'} else {document.getElementById('Rotation').value = 'false'}\");t3 = document.createElement('label');tn = document.createTextNode('Clockwise rotation');t3.appendChild(t2);t3.appendChild(tn);t.appendChild(t3);document.getElementById('Rotation').style.display='none';document.getElementById(\"Rotation\").parentNode.insertBefore(t, document.getElementById(\"Rotation\"));</script>");
-  //Setup WIFI Manager
-  WiFiManager wifiManager;
-
-  //reset settings - for testing
-  //clean FS, for testing
-  //helper.resetsettings(wifiManager);
-
-  wifiManager.setSaveConfigCallback(saveConfigCallback);
-  //add all your parameters here
-  wifiManager.addParameter(&custom_config_name);
-  wifiManager.addParameter(&custom_rotation);
-  wifiManager.addParameter(&custom_text);
-  wifiManager.addParameter(&custom_mqtt_server);
-  wifiManager.addParameter(&custom_mqtt_port);
-  wifiManager.addParameter(&custom_mqtt_uid);
-  wifiManager.addParameter(&custom_mqtt_pwd);
-  wifiManager.addParameter(&custom_text2);
-
-  wifiManager.autoConnect(APid.c_str(), APpw.c_str());
-
-  Serial.println("--- setup wifiManager done");
-
+  String *customWifiManagerParams = wifiManagerSetup(saveConfigCallback, mqtt_server, mqtt_port);
   //Load config upon start
   if (!SPIFFS.begin(true))
   {
@@ -245,12 +202,12 @@ void setup(void)
   if (shouldSaveConfig)
   {
     //read updated parameters
-    strcpy(config_name, custom_config_name.getValue());
-    strcpy(mqtt_server, custom_mqtt_server.getValue());
-    strcpy(mqtt_port, custom_mqtt_port.getValue());
-    strcpy(mqtt_uid, custom_mqtt_uid.getValue());
-    strcpy(mqtt_pwd, custom_mqtt_pwd.getValue());
-    strcpy(config_rotation, custom_rotation.getValue());
+    strcpy(config_name, customWifiManagerParams[0].c_str());
+    strcpy(mqtt_server, customWifiManagerParams[3].c_str());
+    strcpy(mqtt_port, customWifiManagerParams[4].c_str());
+    strcpy(mqtt_uid, customWifiManagerParams[5].c_str());
+    strcpy(mqtt_pwd, customWifiManagerParams[6].c_str());
+    strcpy(config_rotation, customWifiManagerParams[1].c_str());
 
     //Save the data
     saveConfig();
